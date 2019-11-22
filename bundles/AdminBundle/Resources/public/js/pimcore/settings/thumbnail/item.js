@@ -886,7 +886,7 @@ pimcore.settings.thumbnail.items = {
             tbar: this.getTopBar(niceName, myId, panel),
             items: [{
                 xtype: 'textfield',
-                fieldLabel: t("path") + " <br />(rel. to doc-root)",
+                fieldLabel: t("path") + " <br />(rel. to project-root)",
                 name: "path",
                 value: data.path,
                 width: 450
@@ -897,7 +897,7 @@ pimcore.settings.thumbnail.items = {
                 value: data.mode,
                 triggerAction: 'all',
                 editable: false,
-                store: [["", "fit"], ["cropTopLeft", "cropTopLeft"]],
+                store: [["", "fit"], ["cropTopLeft", "cropTopLeft"], ["asTexture", "asTexture"]],
                 width: 300
             }, {
                 xtype: "hidden",
@@ -947,7 +947,7 @@ pimcore.settings.thumbnail.items = {
             tbar: this.getTopBar(niceName, myId, panel),
             items: [{
                 xtype: 'textfield',
-                fieldLabel: t("path") + " <br />(rel. to doc-root)",
+                fieldLabel: t("path") + " <br />(rel. to project-root)",
                 name: "path",
                 value: data.path,
                 width: 450
@@ -1032,7 +1032,7 @@ pimcore.settings.thumbnail.items = {
             tbar: this.getTopBar(niceName, myId, panel),
             items: [{
                 xtype: 'textfield',
-                fieldLabel: t("path") + " <br />(rel. to doc-root)",
+                fieldLabel: t("path") + " <br />(rel. to project-root)",
                 name: "path",
                 value: data.path,
                 width: 450
@@ -1075,7 +1075,7 @@ pimcore.settings.thumbnail.items = {
             tbar: this.getTopBar(niceName, myId, panel),
             items: [{
                 xtype: 'textfield',
-                fieldLabel: t("path") + " <br />(rel. to doc-root)",
+                fieldLabel: t("path") + " <br />(rel. to project-root)",
                 name: "path",
                 value: data.path,
                 width: 450

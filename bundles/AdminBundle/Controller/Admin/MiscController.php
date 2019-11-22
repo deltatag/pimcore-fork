@@ -20,11 +20,13 @@ use Pimcore\Controller\Configuration\TemplatePhp;
 use Pimcore\Db;
 use Pimcore\File;
 use Pimcore\Tool;
+use Pimcore\Translation\Translator;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Bundle\BundleInterface;
+use Symfony\Component\HttpKernel\Profiler\Profiler;
 use Symfony\Component\Routing\Annotation\Route;
 
 /**
@@ -169,7 +171,8 @@ class MiscController extends AdminController
             }
         }
 
-        $response = new Response('pimcore.system_i18n = ' . $this->encodeJson($translations) . ';');
+        $caseInsensitive = $translator instanceof Translator && $translator->getCaseInsensitive();
+        $response = new Response('pimcore.system_i18n = ' . $this->encodeJson($translations) . ';pimcore.system_i18n_case_insensitive='. json_encode($caseInsensitive));
         $response->headers->set('Content-Type', 'text/javascript');
 
         return $response;
@@ -201,21 +204,25 @@ class MiscController extends AdminController
             }
         }
 
-        $fileExtension = \Pimcore\File::getFileExtension($scripts[0]);
-        $contentType = 'text/javascript';
-        if ($fileExtension == 'css') {
-            $contentType = 'text/css';
+        if (!empty($scriptsContent)) {
+            $fileExtension = \Pimcore\File::getFileExtension($scripts[0]);
+            $contentType = 'text/javascript';
+            if ($fileExtension == 'css') {
+                $contentType = 'text/css';
+            }
+
+            $lifetime = 86400;
+
+            $response = new Response($scriptsContent);
+            $response->headers->set('Cache-Control', 'max-age=' . $lifetime);
+            $response->headers->set('Pragma', '');
+            $response->headers->set('Content-Type', $contentType);
+            $response->headers->set('Expires', gmdate('D, d M Y H:i:s', time() + $lifetime) . ' GMT');
+
+            return $response;
+        } else {
+            throw $this->createNotFoundException();
         }
-
-        $lifetime = 86400;
-
-        $response = new Response($scriptsContent);
-        $response->headers->set('Cache-Control', 'max-age=' . $lifetime);
-        $response->headers->set('Pragma', '');
-        $response->headers->set('Content-Type', $contentType);
-        $response->headers->set('Expires', gmdate('D, d M Y H:i:s', time() + $lifetime) . ' GMT');
-
-        return $response;
     }
 
     /**
@@ -700,13 +707,18 @@ class MiscController extends AdminController
      * @Route("/phpinfo", methods={"GET"})
      *
      * @param Request $request
+     * @param Profiler $profiler
      *
      * @throws \Exception
      *
      * @return Response
      */
-    public function phpinfoAction(Request $request)
+    public function phpinfoAction(Request $request, ?Profiler $profiler)
     {
+        if ($profiler) {
+            $profiler->disable();
+        }
+
         if (!$this->getAdminUser()->isAdmin()) {
             throw new \Exception('Permission denied');
         }
@@ -739,11 +751,15 @@ class MiscController extends AdminController
      * @TemplatePhp()
      *
      * @param Request $request
+     * @param Profiler $profiler
      *
      * @return Response
      */
-    public function iconListAction(Request $request)
+    public function iconListAction(Request $request, ?Profiler $profiler)
     {
+        if ($profiler) {
+            $profiler->disable();
+        }
     }
 
     /**

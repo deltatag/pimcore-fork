@@ -17,16 +17,18 @@ namespace Pimcore\Bundle\AdminBundle\Controller\Admin;
 use Linfo;
 use Pimcore\Analytics\Google\Config\SiteConfigProvider;
 use Pimcore\Bundle\AdminBundle\Controller\AdminController;
+use Pimcore\Bundle\AdminBundle\EventListener\CsrfProtectionListener;
 use Pimcore\Bundle\AdminBundle\HttpFoundation\JsonResponse;
 use Pimcore\Config;
 use Pimcore\Controller\Configuration\TemplatePhp;
+use Pimcore\Controller\EventedControllerInterface;
 use Pimcore\Db\ConnectionInterface;
 use Pimcore\Event\Admin\IndexSettingsEvent;
 use Pimcore\Event\AdminEvents;
-use Pimcore\FeatureToggles\Features\DevMode;
 use Pimcore\Google;
+use Pimcore\Maintenance\Executor;
+use Pimcore\Maintenance\ExecutorInterface;
 use Pimcore\Model\Element\Service;
-use Pimcore\Model\Schedule\Manager\Procedural;
 use Pimcore\Model\User;
 use Pimcore\Templating\Model\ViewModel;
 use Pimcore\Tool;
@@ -36,10 +38,12 @@ use Pimcore\Version;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Attribute\AttributeBagInterface;
+use Symfony\Component\HttpKernel\Event\FilterControllerEvent;
+use Symfony\Component\HttpKernel\Event\FilterResponseEvent;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Routing\Annotation\Route;
 
-class IndexController extends AdminController
+class IndexController extends AdminController implements EventedControllerInterface
 {
     /**
      * @var EventDispatcherInterface
@@ -61,6 +65,8 @@ class IndexController extends AdminController
      * @param Request $request
      * @param SiteConfigProvider $siteConfigProvider
      * @param KernelInterface $kernel
+     * @param Executor $maintenanceExecutor
+     * @param CsrfProtectionListener $csrfProtectionListener
      *
      * @return ViewModel
      *
@@ -69,7 +75,9 @@ class IndexController extends AdminController
     public function indexAction(
         Request $request,
         SiteConfigProvider $siteConfigProvider,
-        KernelInterface $kernel
+        KernelInterface $kernel,
+        Executor $maintenanceExecutor,
+        CsrfProtectionListener $csrfProtectionListener
     ) {
         $user = $this->getAdminUser();
         $view = new ViewModel([
@@ -81,7 +89,7 @@ class IndexController extends AdminController
             ->addReportConfig($view)
             ->addPluginAssets($view);
 
-        $settings = $this->buildPimcoreSettings($request, $view, $user, $kernel);
+        $settings = $this->buildPimcoreSettings($request, $view, $user, $kernel, $maintenanceExecutor, $csrfProtectionListener);
         $this->buildGoogleAnalyticsSettings($view, $settings, $siteConfigProvider);
 
         if ($user->getTwoFactorAuthentication('required') && !$user->getTwoFactorAuthentication('enabled')) {
@@ -218,16 +226,16 @@ class IndexController extends AdminController
     }
 
     /**
-     * Build pimcore.settings data
-     *
      * @param Request $request
      * @param ViewModel $view
      * @param User $user
      * @param KernelInterface $kernel
+     * @param ExecutorInterface $maintenanceExecutor
+     * @param CsrfProtectionListener $csrfProtectionListener
      *
      * @return ViewModel
      */
-    protected function buildPimcoreSettings(Request $request, ViewModel $view, User $user, KernelInterface $kernel)
+    protected function buildPimcoreSettings(Request $request, ViewModel $view, User $user, KernelInterface $kernel, ExecutorInterface $maintenanceExecutor, CsrfProtectionListener $csrfProtectionListener)
     {
         $config = $view->config;
         $settings = new ViewModel([
@@ -235,11 +243,10 @@ class IndexController extends AdminController
             'version' => Version::getVersion(),
             'build' => Version::getRevision(),
             'debug' => \Pimcore::inDebugMode(),
-            'devmode' => \Pimcore::inDevMode(DevMode::ADMIN),
+            'devmode' => \Pimcore::inDevMode(),
             'disableMinifyJs' => \Pimcore::disableMinifyJs(),
             'environment' => $kernel->getEnvironment(),
             'sessionId' => htmlentities(Session::getSessionId(), ENT_QUOTES, 'UTF-8'),
-            'isLegacyModeAvailable' => \Pimcore::isLegacyModeAvailable()
         ]);
 
         // languages
@@ -261,7 +268,7 @@ class IndexController extends AdminController
         $settings->getParameters()->add([
             'showCloseConfirmation' => true,
             'debug_admin_translations' => (bool)$config->general->debug_admin_translations,
-            'document_generatepreviews' => (bool)$config->documents->generatepreview,
+            'document_generatepreviews' => (bool)$config->documents->generate_preview,
             'document_naming_strategy' => $namingStrategy->getName(),
             'asset_disable_tree_preview' => (bool)$config->assets->disable_tree_preview,
             'htmltoimage' => \Pimcore\Image\HtmlToImage::isSupported(),
@@ -288,10 +295,11 @@ class IndexController extends AdminController
 
         $this
             ->addSystemVarSettings($settings)
-            ->addCsrfToken($settings, $user)
-            ->addMaintenanceSettings($settings)
+            ->addMaintenanceSettings($settings, $maintenanceExecutor)
             ->addMailSettings($settings, $config)
             ->addCustomViewSettings($settings);
+
+        $settings->csrfToken = $csrfProtectionListener->getCsrfToken();
 
         return $settings;
     }
@@ -354,39 +362,15 @@ class IndexController extends AdminController
 
     /**
      * @param ViewModel $settings
-     * @param User $user
+     * @param ExecutorInterface $maintenanceExecutor
      *
      * @return $this
      */
-    protected function addCsrfToken(ViewModel $settings, User $user)
-    {
-        $csrfToken = Session::useSession(function (AttributeBagInterface $adminSession) use ($user) {
-            if (!$adminSession->has('csrfToken') && !$adminSession->get('csrfToken')) {
-                $adminSession->set('csrfToken', sha1(microtime() . $user->getName() . uniqid()));
-            }
-
-            return $adminSession->get('csrfToken');
-        });
-
-        $settings->csrfToken = $csrfToken;
-
-        return $this;
-    }
-
-    /**
-     * @param ViewModel $settings
-     *
-     * @return $this
-     */
-    protected function addMaintenanceSettings(ViewModel $settings)
+    protected function addMaintenanceSettings(ViewModel $settings, ExecutorInterface $maintenanceExecutor)
     {
         // check maintenance
         $maintenance_active = false;
-
-        $manager = $this->get(Procedural::class);
-
-        $lastExecution = $manager->getLastExecution();
-        if ($lastExecution) {
+        if ($lastExecution = $maintenanceExecutor->getLastExecution()) {
             if ((time() - $lastExecution) < 3660) { // maintenance script should run at least every hour + a little tolerance
                 $maintenance_active = true;
             }
@@ -461,5 +445,14 @@ class IndexController extends AdminController
         $settings->customviews = $cvData;
 
         return $this;
+    }
+
+    public function onKernelController(FilterControllerEvent $event)
+    {
+    }
+
+    public function onKernelResponse(FilterResponseEvent $event)
+    {
+        $event->getResponse()->headers->set('X-Frame-Options', 'deny', true);
     }
 }

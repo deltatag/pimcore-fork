@@ -88,7 +88,8 @@ pimcore.settings.web2print = Class.create({
                         store: [
                             ["8.0", "8.0"],
                             ["8.1", "8.1"],
-                            ["9.0", "9.0"]
+                            ["9.0", "9.0"],
+                            ["10.0", "10.0"]
                         ],
                         mode: "local",
                         triggerAction: "all"
@@ -150,6 +151,22 @@ pimcore.settings.web2print = Class.create({
                         fieldLabel: t("web2print_licence"),
                         name: 'pdfreactorLicence',
                         value: this.getValue("pdfreactorLicence")
+                    }, {
+                        xtype: 'checkbox',
+                        fieldLabel: t("web2print_enableLenientHttpsMode"),
+                        name: 'pdfreactorEnableLenientHttpsMode',
+                        value: this.getValue("pdfreactorEnableLenientHttpsMode")
+                    }, {
+                        xtype: "displayfield",
+                        hideLabel: true,
+                        width: 600,
+                        value: t('web2print_enableLenientHttpsMode_txt'),
+                        cls: "pimcore_extra_label_bottom"
+                    }, {
+                        xtype: 'checkbox',
+                        fieldLabel: t("web2print_enableDebugMode"),
+                        name: 'pdfreactorEnableDebugMode',
+                        value: this.getValue("pdfreactorEnableDebugMode")
                     }
                 ]
             });

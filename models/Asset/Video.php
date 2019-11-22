@@ -55,7 +55,6 @@ class Video extends Model\Asset
             }
 
             $this->handleEmbeddedMetaData(true, $tmpFile);
-            unlink($tmpFile);
         }
 
         $this->clearThumbnails();
@@ -157,7 +156,7 @@ class Video extends Model\Asset
      * @param null $timeOffset
      * @param null $imageAsset
      *
-     * @return mixed|string
+     * @return Video\ImageThumbnail
      *
      * @throws \Exception
      */

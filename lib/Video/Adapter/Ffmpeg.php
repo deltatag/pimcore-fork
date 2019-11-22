@@ -139,6 +139,8 @@ class Ffmpeg extends Adapter
             $process->start();
 
             $logHandle = fopen($this->getConversionLogFile(), 'a');
+            fwrite($logHandle, 'Command: ' . $cmd . "\n\n\n");
+
             $process->wait(function ($type, $buffer) use ($logHandle) {
                 fwrite($logHandle, $buffer);
             });
@@ -150,7 +152,10 @@ class Ffmpeg extends Adapter
                 $success = true;
             } else {
                 // create an error log file
-                copy($this->getConversionLogFile(), str_replace('.log', '.error.log', $this->getConversionLogFile()));
+                if (file_exists($this->getConversionLogFile()) && filesize($this->getConversionLogFile())) {
+                    copy($this->getConversionLogFile(),
+                        str_replace('.log', '.error.log', $this->getConversionLogFile()));
+                }
             }
         } else {
             throw new \Exception('There is no destination file for video converter');
@@ -175,7 +180,7 @@ class Ffmpeg extends Adapter
             $file = PIMCORE_SYSTEM_TEMP_DIRECTORY . '/ffmpeg-tmp-' . uniqid() . '.' . File::getFileExtension($file);
         }
 
-        $cmd = self::getFfmpegCli() . ' -i ' . escapeshellarg(realpath($this->file)) . ' -vcodec png -vframes 1 -vf scale=iw*sar:ih -ss ' . $timeOffset . ' ' . escapeshellarg(str_replace('/', DIRECTORY_SEPARATOR, $file));
+        $cmd = self::getFfmpegCli() . ' -ss ' . $timeOffset . ' -i ' . escapeshellarg(realpath($this->file)) . ' -vcodec png -vframes 1 -vf scale=iw*sar:ih ' . escapeshellarg(str_replace('/', DIRECTORY_SEPARATOR, $file));
         Console::exec($cmd, null, 60);
 
         if ($realTargetPath) {

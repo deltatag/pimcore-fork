@@ -35,7 +35,7 @@ class TmpStore extends Model\AbstractModel
     public $tag;
 
     /**
-     * @var string
+     * @var mixed
      */
     public $data;
 
@@ -152,12 +152,6 @@ class TmpStore extends Model\AbstractModel
         return null;
     }
 
-    public static function cleanup()
-    {
-        $instance = self::getInstance();
-        $instance->getDao()->cleanup();
-    }
-
     /**
      * @param $tag
      *
@@ -204,7 +198,7 @@ class TmpStore extends Model\AbstractModel
     }
 
     /**
-     * @return string
+     * @return mixed
      */
     public function getData()
     {

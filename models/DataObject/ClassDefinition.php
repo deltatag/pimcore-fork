@@ -175,7 +175,7 @@ class ClassDefinition extends Model\AbstractModel
     /**
      * @param $id
      *
-     * @return mixed|null|ClassDefinition
+     * @return null|ClassDefinition
      *
      * @throws \Exception
      */
@@ -219,7 +219,7 @@ class ClassDefinition extends Model\AbstractModel
     /**
      * @param string $name
      *
-     * @return self
+     * @return self|null
      */
     public static function getByName($name)
     {
@@ -228,12 +228,8 @@ class ClassDefinition extends Model\AbstractModel
             $id = $class->getDao()->getIdByName($name);
             if ($id) {
                 return self::getById($id);
-            } else {
-                throw new \Exception('There is no class with the name: ' . $name);
             }
         } catch (\Exception $e) {
-            Logger::error($e);
-
             return null;
         }
     }
@@ -305,6 +301,22 @@ class ClassDefinition extends Model\AbstractModel
             $this->setId($maxId ? $maxId + 1 : 1);
         }
 
+        if (!preg_match('/[a-zA-Z][a-zA-Z0-9_]+/', $this->getName())) {
+            throw new \Exception(sprintf('Invalid name for class definition: %s', $this->getName()));
+        }
+
+        if (!preg_match('/[a-zA-Z0-9]([a-zA-Z0-9_]+)?/', $this->getId())) {
+            throw new \Exception(sprintf('Invalid ID `%s` for class definition %s', $this->getId(), $this->getName()));
+        }
+
+        foreach (['parentClass', 'listingParentClass', 'useTraits', 'listingUseTraits'] as $propertyName) {
+            $propertyValue = $this->{'get'.ucfirst($propertyName)}();
+            if ($propertyValue && !preg_match('/^[a-zA-Z_\x7f-\xff\\\][a-zA-Z0-9_\x7f-\xff\\\ ,]*$/', $propertyValue)) {
+                throw new \Exception(sprintf('Invalid %s value for class definition: %s', $propertyName,
+                    $this->getParentClass()));
+            }
+        }
+
         $isUpdate = $this->exists();
 
         if (!$isUpdate) {
@@ -343,6 +355,9 @@ class ClassDefinition extends Model\AbstractModel
         $cd .= "\n\n";
         $cd .= 'namespace Pimcore\\Model\\DataObject;';
         $cd .= "\n\n";
+        $cd .= 'use Pimcore\Model\DataObject\Exception\InheritanceParentNotFoundException;';
+        $cd .= "\n";
+        $cd .= 'use Pimcore\Model\DataObject\PreGetValueHookInterface;';
         $cd .= "\n\n";
         $cd .= "/**\n";
         if (is_array($this->getFieldDefinitions()) && count($this->getFieldDefinitions())) {
@@ -367,8 +382,7 @@ class ClassDefinition extends Model\AbstractModel
         $cd .= 'class '.ucfirst($this->getName()).' extends '.$extendClass.' implements \\Pimcore\\Model\\DataObject\\DirtyIndicatorInterface {';
         $cd .= "\n\n";
 
-        $cd .= "\n\n";
-        $cd .= 'use \\Pimcore\\Model\\DataObject\\Traits\\DirtyIndicatorTrait;';
+        $cd .= 'use \Pimcore\Model\DataObject\Traits\DirtyIndicatorTrait;';
         $cd .= "\n\n";
 
         if ($this->getUseTraits()) {
@@ -405,9 +419,6 @@ class ClassDefinition extends Model\AbstractModel
         $cd .= "\n\n";
 
         if (is_array($this->getFieldDefinitions()) && count($this->getFieldDefinitions())) {
-            $relationTypes = [];
-            $lazyLoadedFields = [];
-
             foreach ($this->getFieldDefinitions() as $key => $def) {
                 if (method_exists($def, 'isRemoteOwner') and $def->isRemoteOwner()) {
                     continue;
@@ -421,19 +432,7 @@ class ClassDefinition extends Model\AbstractModel
                 if (method_exists($def, 'classSaved')) {
                     $def->classSaved($this);
                 }
-
-                if ($def->isRelationType()) {
-                    $relationTypes[$key] = ['type' => $def->getFieldType()];
-                }
-
-                // collect lazyloaded fields
-                if (method_exists($def, 'getLazyLoading') and $def->getLazyLoading()) {
-                    $lazyLoadedFields[] = $key;
-                }
             }
-
-            $cd .= 'protected static $_relationFields = '.var_export($relationTypes, true).";\n\n";
-            $cd .= 'protected $lazyLoadedFields = '.var_export($lazyLoadedFields, true).";\n\n";
         }
 
         $cd .= "}\n";
@@ -939,26 +938,6 @@ class ClassDefinition extends Model\AbstractModel
     }
 
     /**
-     * @return mixed
-     */
-    public function getParent()
-    {
-        return $this->parent;
-    }
-
-    /**
-     * @param mixed $parent
-     *
-     * @return $this
-     */
-    public function setParent($parent)
-    {
-        $this->parent = $parent;
-
-        return $this;
-    }
-
-    /**
      * @return string
      */
     public function getParentClass()
@@ -1303,40 +1282,5 @@ class ClassDefinition extends Model\AbstractModel
         $generator = DataObject\ClassDefinition\Helper\LinkGeneratorResolver::resolveGenerator($this->getLinkGeneratorReference());
 
         return $generator;
-    }
-
-    /**
-     * @deprecated Just a BC compatibility method
-     * Adds given data field after existing field with given field name. If existing field is not found, nothing is added.
-     *
-     * @param $fieldNameToAddAfter
-     * @param ClassDefinition\Data $fieldToAdd
-     * @param ClassDefinition\Layout|null $layoutComponent
-     */
-    public function addNewDataField($fieldNameToAddAfter, DataObject\ClassDefinition\Data $fieldToAdd, DataObject\ClassDefinition\Layout $layoutComponent = null)
-    {
-        if (null === $layoutComponent) {
-            $layoutComponent = $this->getLayoutDefinitions();
-        }
-
-        $definitionModifier = new DefinitionModifier();
-        $definitionModifier->appendFields($layoutComponent, $fieldNameToAddAfter, $fieldToAdd);
-    }
-
-    /**
-     * @deprecated Just a BC compatibility method
-     * Removes data field with given name. If not found, nothing is removed.
-     *
-     * @param $fieldNameToRemove
-     * @param ClassDefinition\Layout|null $layoutComponent
-     */
-    public function removeExistingDataField($fieldNameToRemove, DataObject\ClassDefinition\Layout $layoutComponent = null)
-    {
-        if (null === $layoutComponent) {
-            $layoutComponent = $this->getLayoutDefinitions();
-        }
-
-        $definitionModifier = new DefinitionModifier();
-        $definitionModifier->removeField($layoutComponent, $fieldNameToRemove);
     }
 }

@@ -268,13 +268,14 @@ pimcore.document.document_language_overview = Class.create({
                     });
 
                     var win = new Ext.Window({
+                        modal: true,
                         width: 600,
                         bodyStyle: "padding:10px",
                         items: [pageForm],
                         title: t(inheritance ? "create_translation_inheritance" : "create_translation"),
                         buttons: [{
                             text: t("cancel"),
-                            iconCls: "pimcore_icon_delete",
+                            iconCls: "pimcore_icon_cancel",
                             handler: function () {
                                 win.close();
                             }

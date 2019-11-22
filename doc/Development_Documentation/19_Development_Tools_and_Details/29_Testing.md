@@ -17,7 +17,18 @@ bootstrap file to ensure the Pimcore startup process has everything it needs. St
 to your project:
 
 ```
-$ composer require --dev 'symfony/phpunit-bridge:^3.4'
+$ composer require --dev 'symfony/phpunit-bridge:*'
+```
+
+With ```symfony/phpunit-bridge``` comes ```vendor/bin/simple-phpunit``` which uses its own PHPUnit version. For ```simple-phpunit``` to use the right version, you need to exclude ```phpunit``` from the autoloader's classmap and afterwards update the autoloader with ```composer dump-autoload -o```
+```
+  "autoload": {
+    ...
+
+    "exclude-from-classmap": [
+      "vendor/phpunit"
+    ]
+  }
 ```
 
 Next, add a PHPUnit config file named `phpunit.xml.dist` in the root directory of your project. The config file below
@@ -26,8 +37,8 @@ expects your tests in a `tests/` directory and processes files in `src/` when ca
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/6.5/phpunit.xsd"
-         bootstrap="../../vendor/autoload.php"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/7.4/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
          colors="true">
     <testsuite name="default">
         <directory suffix="Test.php">tests</directory>
@@ -38,6 +49,10 @@ expects your tests in a `tests/` directory and processes files in `src/` when ca
             <directory suffix=".php">src</directory>
         </whitelist>
     </filter>
+
+    <php>
+        <env name="SYMFONY_PHPUNIT_VERSION" value="7.4" />
+    </php>
 </phpunit>
 ``` 
 
@@ -101,7 +116,7 @@ with Symfony's PHPUnit wrapper:
 ```
 $ vendor/bin/simple-phpunit
 
-PHPUnit 6.5.6 by Sebastian Bergmann and contributors.
+PHPUnit 7.4.5 by Sebastian Bergmann and contributors.
 
 Testing default
 ........                                                            8 / 8 (100%)
@@ -120,7 +135,7 @@ to a custom bootstrap file and to add environment variables needed to bootstrap 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/6.5/phpunit.xsd"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/7.4/phpunit.xsd"
          bootstrap="tests/bootstrap.php"
          colors="true">
     <testsuite name="default">
@@ -135,6 +150,7 @@ to a custom bootstrap file and to add environment variables needed to bootstrap 
 
     <php>
         <!-- adjust as needed -->
+        <env name="SYMFONY_PHPUNIT_VERSION" value="7.4" />
         <env name="PIMCORE_PROJECT_ROOT" value="." />
         <env name="KERNEL_DIR" value="app" />
         <env name="KERNEL_CLASS" value="AppKernel" />
@@ -153,7 +169,7 @@ with the following content (customize as needed):
 include "../../vendor/autoload.php";
 
 \Pimcore\Bootstrap::setProjectRoot();
-\Pimcore\Bootstrap::boostrap();
+\Pimcore\Bootstrap::bootstrap();
 
 ```
 
@@ -214,17 +230,16 @@ class ContentControllerTest extends WebTestCase
 
 If you would run the test suite now, it would fail with a list of errors as the test can't connect to the database. This 
 is because the tests run in the `test` environment and that environment is set up to use a different database connection
-which is defined as `PIMCORE_TEST_DB_DSN` environment variable by default (see [config_test.yml](https://github.com/pimcore/pimcore/blob/master/app/config/config_test.yml)).
+which is defined as `PIMCORE_TEST_DB_DSN` environment variable by default (see [config_test.yml](https://github.com/pimcore/skeleton/blob/master/app/config/config_test.yml)).
 
 You can either define the database DSN as environment variable on your shell, hardcode it into the PHPUnit config file (not
-recommended) or remove/alter the customized `doctrine` section from `config_test.yml` completely to have Pimcore connect
-to the DB defined in `system.php` during tests. What to use depends highly on your environment and your tests - if you have
+recommended) or remove/alter the customized `doctrine` section from `config_test.yml` completely. What to use depends highly on your environment and your tests - if you have
 tests which make changes to the database you'll probably want to run them on a different database with a predefined data
 set. The example below just passes the DB connection as env variable:
 
 ```
 $ PIMCORE_TEST_DB_DSN="mysql://username:password@localhost/pimcore" vendor/bin/simple-phpunit
-PHPUnit 6.5.6 by Sebastian Bergmann and contributors.
+PHPUnit 7.4.5 by Sebastian Bergmann and contributors.
 
 Testing default
 ..........                                                        10 / 10 (100%)
@@ -322,7 +337,7 @@ putenv('PIMCORE_ENVIRONMENT=test');
 require_once PIMCORE_PROJECT_ROOT . '/vendor/autoload.php';
 
 \Pimcore\Bootstrap::setProjectRoot();
-\Pimcore\Bootstrap::boostrap();
+\Pimcore\Bootstrap::bootstrap();
 
 
 // add the core pimcore test library to the autoloader - this could also be done in composer.json's autoload-dev section
@@ -473,7 +488,7 @@ by configuring the DB DSN before running codeception:
 $ PIMCORE_TEST_DB_DSN="mysql://username:password@localhost/pimcore" vendor/bin/codecept run -c tests/codeception.dist.yml
 
 Codeception PHP Testing Framework v2.3.8
-Powered by PHPUnit 6.5.6 by Sebastian Bergmann and contributors.
+Powered by PHPUnit 7.4.5 by Sebastian Bergmann and contributors.
 
   [DB] Initializing DB pimcore5_test
   [DB] Dropping DB pimcore5_test

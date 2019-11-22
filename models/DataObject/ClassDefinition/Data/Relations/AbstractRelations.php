@@ -18,14 +18,15 @@ namespace Pimcore\Model\DataObject\ClassDefinition\Data\Relations;
 
 use Pimcore\Db;
 use Pimcore\Logger;
-use Pimcore\Model;
 use Pimcore\Model\DataObject;
 use Pimcore\Model\DataObject\ClassDefinition\Data;
 use Pimcore\Model\DataObject\ClassDefinition\Data\CustomResourcePersistingInterface;
 use Pimcore\Model\Element;
 
-abstract class AbstractRelations extends Data implements CustomResourcePersistingInterface
+abstract class AbstractRelations extends Data implements CustomResourcePersistingInterface, DataObject\ClassDefinition\PathFormatterAwareInterface
 {
+    const RELATION_ID_SEPARATOR = '$$';
+
     /**
      * @var bool
      */
@@ -94,129 +95,6 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
     public function isRemoteOwner()
     {
         return self::$remoteOwner;
-    }
-
-    /**
-     *
-     * Checks if an object is an allowed relation
-     *
-     * @param Model\DataObject\AbstractObject $object
-     *
-     * @return bool
-     */
-    protected function allowObjectRelation($object)
-    {
-        $allowedClasses = $this->getClasses();
-        $allowed = true;
-        if (!$this->getObjectsAllowed()) {
-            $allowed = false;
-        } elseif ($this->getObjectsAllowed() and is_array($allowedClasses) and count($allowedClasses) > 0) {
-            //check for allowed classes
-            if ($object instanceof DataObject\Concrete) {
-                $classname = $object->getClassName();
-                foreach ($allowedClasses as $c) {
-                    $allowedClassnames[] = $c['classes'];
-                }
-                if (!in_array($classname, $allowedClassnames)) {
-                    $allowed = false;
-                }
-            } else {
-                $allowed = false;
-            }
-        } else {
-            //don't check if no allowed classes set
-        }
-
-        if ($object instanceof DataObject\AbstractObject) {
-            Logger::debug('checked object relation to target object [' . $object->getId() . '] in field [' . $this->getName() . '], allowed:' . $allowed);
-        } else {
-            Logger::debug('checked object relation to target in field [' . $this->getName() . '], not allowed, target ist not an object');
-            Logger::debug($object);
-        }
-
-        return $allowed;
-    }
-
-    /**
-     *
-     * Checks if an asset is an allowed relation
-     *
-     * @param Model\Asset $asset
-     *
-     * @return bool
-     */
-    protected function allowAssetRelation($asset)
-    {
-        $allowedAssetTypes = $this->getAssetTypes();
-        $allowedTypes = [];
-        $allowed = true;
-        if (!$this->getAssetsAllowed()) {
-            $allowed = false;
-        } elseif ($this->getAssetsAllowed() and is_array($allowedAssetTypes) and count($allowedAssetTypes) > 0) {
-            //check for allowed asset types
-            foreach ($allowedAssetTypes as $t) {
-                if (is_array($t) && array_key_exists('assetTypes', $t)) {
-                    $t = $t['assetTypes'];
-                }
-
-                if ($t) {
-                    if (is_string($t)) {
-                        $allowedTypes[] = $t;
-                    } elseif (is_array($t) && count($t) > 0) {
-                        if (isset($t['assetTypes'])) {
-                            $allowedTypes[] = $t['assetTypes'];
-                        } else {
-                            $allowedTypes[] = $t;
-                        }
-                    }
-                }
-            }
-            if (!in_array($asset->getType(), $allowedTypes)) {
-                $allowed = false;
-            }
-        } else {
-            //don't check if no allowed asset types set
-        }
-
-        Logger::debug('checked object relation to target asset [' . $asset->getId() . '] in field [' . $this->getName() . '], allowed:' . $allowed);
-
-        return $allowed;
-    }
-
-    /**
-     *
-     * Checks if an document is an allowed relation
-     *
-     * @param Model\Document $document
-     *
-     * @return bool
-     */
-    protected function allowDocumentRelation($document)
-    {
-        $allowedDocumentTypes = $this->getDocumentTypes();
-
-        $allowed = true;
-        if (!$this->getDocumentsAllowed()) {
-            $allowed = false;
-        } elseif ($this->getDocumentsAllowed() and is_array($allowedDocumentTypes) and count($allowedDocumentTypes) > 0) {
-            //check for allowed asset types
-            $allowedTypes = [];
-            foreach ($allowedDocumentTypes as $t) {
-                if ($t['documentTypes']) {
-                    $allowedTypes[] = $t['documentTypes'];
-                }
-            }
-
-            if (!in_array($document->getType(), $allowedTypes) && count($allowedTypes)) {
-                $allowed = false;
-            }
-        } else {
-            //don't check if no allowed document types set
-        }
-
-        Logger::debug('checked object relation to target document [' . $document->getId() . '] in field [' . $this->getName() . '], allowed:' . $allowed);
-
-        return $allowed;
     }
 
     /** Enrich relation with type-specific data.
@@ -341,8 +219,6 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
             if (!method_exists($this, 'getLazyLoading') or !$this->getLazyLoading() or (array_key_exists('force', $params) && $params['force'])) {
                 $relations = $db->fetchAll('SELECT * FROM object_relations_' . $object->getClassId() . " WHERE src_id = ? AND fieldname = ? AND ownertype = 'object'", [$object->getId(), $this->getName()]);
             } else {
-                $object->addLazyKey($this->getName());
-
                 return null;
             }
         } elseif ($object instanceof DataObject\Fieldcollection\Data\AbstractData) {
@@ -385,11 +261,11 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
         });
 
         $data = $this->loadData($relations, $object, $params);
-        if ($object instanceof DataObject\DirtyIndicatorInterface) {
-            $object->markFieldDirty($this->getName(), false);
+        if ($object instanceof DataObject\DirtyIndicatorInterface && $data['dirty']) {
+            $object->markFieldDirty($this->getName(), true);
         }
 
-        return $data;
+        return $data['data'];
     }
 
     /**
@@ -453,7 +329,7 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
     /**
      * @return null|string
      */
-    public function getPathFormatterClass()
+    public function getPathFormatterClass(): ?string
     {
         return $this->pathFormatterClass;
     }
@@ -567,13 +443,16 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
      *
      * @throws \Exception
      */
-    public function loadLazyFieldcollectionField(DataObject\Fieldcollection\Data\AbstractData $abstractData)
+    public function loadLazyFieldcollectionField(DataObject\Fieldcollection\Data\AbstractData $item)
     {
-        if ($this->getLazyLoading() && $abstractData->getObject()) {
-            /** @var $model DataObject\Fieldcollection */
-            $model = $abstractData->getObject()->getObjectVar($abstractData->getFieldname());
-            if ($model) {
-                $model->loadLazyField($abstractData->getObject(), $abstractData->getType(), $abstractData->getFieldname(), $abstractData->getIndex(), $this->getName());
+        if ($this->getLazyLoading() && $item->getObject()) {
+            /** @var $container DataObject\Fieldcollection */
+            $container = $item->getObject()->getObjectVar($item->getFieldname());
+            if ($container) {
+                $container->loadLazyField($item->getObject(), $item->getType(), $item->getFieldname(), $item->getIndex(), $this->getName());
+            } else {
+                // if container is not available we assume that it is a newly set item
+                $item->markLazyKeyAsLoaded($this->getName());
             }
         }
     }
@@ -583,13 +462,15 @@ abstract class AbstractRelations extends Data implements CustomResourcePersistin
      *
      * @throws \Exception
      */
-    public function loadLazyBrickField(DataObject\Objectbrick\Data\AbstractData $object)
+    public function loadLazyBrickField(DataObject\Objectbrick\Data\AbstractData $item)
     {
-        if ($this->getLazyLoading() && $object->getObject()) {
-            /** @var $model DataObject\Objectbrick */
-            $model = $object->getObject()->getObjectVar($object->getFieldname());
-            if ($model) {
-                $model->loadLazyField($object->getType(), $object->getFieldname(), $this->getName());
+        if ($this->getLazyLoading() && $item->getObject()) {
+            /** @var $container DataObject\Objectbrick */
+            $container = $item->getObject()->getObjectVar($item->getFieldname());
+            if ($container) {
+                $container->loadLazyField($item->getType(), $item->getFieldname(), $this->getName());
+            } else {
+                $item->markLazyKeyAsLoaded($this->getName());
             }
         }
     }

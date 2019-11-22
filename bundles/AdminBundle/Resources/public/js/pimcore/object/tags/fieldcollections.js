@@ -79,8 +79,9 @@ pimcore.object.tags.fieldcollections = Class.create(pimcore.object.tags.abstract
 
         var panelConf = {
             autoHeight: true,
-            border: true,
+            border: this.fieldConfig.border,
             style: "margin-bottom: 10px",
+            bodyStyle: 'padding-top: 5px',
             componentCls: "object_field",
             collapsible: this.fieldConfig.collapsible,
             collapsed: this.fieldConfig.collapsed
@@ -90,12 +91,6 @@ pimcore.object.tags.fieldcollections = Class.create(pimcore.object.tags.abstract
         }
 
         this.component = new Ext.Panel(panelConf);
-
-        this.component.addListener("render", function() {
-            if(this.object.data.metaData[this.getName()] && this.object.data.metaData[this.getName()].hasParentValue) {
-                this.addInheritanceSourceButton(this.object.data.metaData[this.getName()]);
-            }
-        }.bind(this));
 
         this.component.on("destroy", function() {
             pimcore.eventDispatcher.unregisterTarget(this.eventDispatcherKey);
@@ -225,8 +220,6 @@ pimcore.object.tags.fieldcollections = Class.create(pimcore.object.tags.abstract
             });
 
             if (title) {
-                items.push('->');
-
                 items.push({
                     xtype: "tbtext",
                     text: ts(title)
@@ -376,10 +369,11 @@ pimcore.object.tags.fieldcollections = Class.create(pimcore.object.tags.abstract
 
         var blockElement = new Ext.Panel({
             pimcore_oIndex: oIndex,
-            bodyStyle: "padding:10px;",
+            cls: 'pimcore_fieldcollection_item',
+            bodyStyle: "padding: 5px 5px 5px 0px;",
             style: "margin: 0 0 10px 0;",
             manageHeight: false,
-            border: false,
+            border: true,
             items: items,
             disabled: this.fieldConfig.noteditable
         });
@@ -545,38 +539,6 @@ pimcore.object.tags.fieldcollections = Class.create(pimcore.object.tags.abstract
         }
 
         return false;
-    },
-
-    isInvalidMandatory: function () {
-        var element;
-        var isInvalid = false;
-        var invalidMandatoryFields = [];
-
-        for(var s=0; s<this.component.items.items.length; s++) {
-            if(this.currentElements[this.component.items.items[s].key]) {
-                element = this.currentElements[this.component.items.items[s].key];
-
-                var elementFieldNames = Object.keys(element.fields);
-
-                for (var u=0; u < elementFieldNames.length; u++) {
-                    var elementFieldName = elementFieldNames[u];
-                    if(element.fields[elementFieldName].isMandatory()) {
-                        if(element.fields[elementFieldName].isInvalidMandatory()) {
-                            invalidMandatoryFields.push(element.fields[elementFieldName].getTitle() + " ("
-                                                                    + element.fields[elementFieldName].getName() + ")");
-                            isInvalid = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // return the error messages not bool, this is handled in object/edit.js
-        if(isInvalid) {
-            return invalidMandatoryFields;
-        }
-
-        return isInvalid;
     }
 });
 

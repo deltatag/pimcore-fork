@@ -35,12 +35,12 @@ class TestHelper
     public static function checkDbSupport()
     {
         if (!static::supportsDbTests()) {
-            throw new \PHPUnit_Framework_SkippedTestError('Not running test as DB is not connected');
+            throw new \PHPUnit\Framework\SkippedTestError('Not running test as DB is not connected');
         }
     }
 
     /**
-     * @param  array $properties
+     * @param \Pimcore\Model\Property[] $properties
      *
      * @return array
      *
@@ -54,22 +54,22 @@ class TestHelper
 
         if (is_array($properties)) {
             foreach ($properties as $key => $value) {
-                if ($value->type == 'asset' || $value->type == 'object' || $value->type == 'document') {
-                    if ($value->data instanceof ElementInterface) {
-                        $propertiesStringArray['property_' . $key . '_' . $value->type] = 'property_' . $key . '_' . $value->type . ':' . $value->data->getId();
+                if (in_array($value->getType(), ['document', 'asset', 'object'])) {
+                    if ($value->getData() instanceof ElementInterface) {
+                        $propertiesStringArray['property_' . $key . '_' . $value->getType()] = 'property_' . $key . '_' . $value->getType() . ':' . $value->getData()->getId();
                     } else {
-                        $propertiesStringArray['property_' . $key . '_' . $value->type] = 'property_' . $key . '_' . $value->type . ': null';
+                        $propertiesStringArray['property_' . $key . '_' . $value->getType()] = 'property_' . $key . '_' . $value->getType() . ': null';
                     }
-                } elseif ($value->type == 'date') {
-                    if ($value->data instanceof \DateTimeInterface) {
-                        $propertiesStringArray['property_' . $key . '_' . $value->type] = 'property_' . $key . '_' . $value->type . ':' . $value->data->getTimestamp();
+                } elseif ($value->getType() === 'date') {
+                    if ($value->getData() instanceof \DateTimeInterface) {
+                        $propertiesStringArray['property_' . $key . '_' . $value->getType()] = 'property_' . $key . '_' . $value->getType() . ':' . $value->getData()->getTimestamp();
                     }
-                } elseif ($value->type == 'bool') {
-                    $propertiesStringArray['property_' . $key . '_' . $value->type] = 'property_' . $key . '_' . $value->type . ':' . (bool)$value->data;
-                } elseif ($value->type == 'text' || $value->type == 'select') {
-                    $propertiesStringArray['property_' . $key . '_' . $value->type] = 'property_' . $key . '_' . $value->type . ':' . $value->data;
+                } elseif ($value->getType() === 'bool') {
+                    $propertiesStringArray['property_' . $key . '_' . $value->getType()] = 'property_' . $key . '_' . $value->getType() . ':' . (bool)$value->getData();
+                } elseif (in_array($value->getType(), ['text', 'select'])) {
+                    $propertiesStringArray['property_' . $key . '_' . $value->getType()] = 'property_' . $key . '_' . $value->getType() . ':' . $value->getData();
                 } else {
-                    throw new \Exception('Unknown property of type [ ' . $value->type . ' ]');
+                    throw new \Exception('Unknown property of type [ ' . $value->getType() . ' ]');
                 }
             }
         }
@@ -168,8 +168,6 @@ class TestHelper
                 }
 
                 if ($document instanceof Document\Page) {
-                    $d['name'] = $document->getName();
-                    $d['keywords'] = $document->getKeywords();
                     $d['title'] = $document->getTitle();
                     $d['description'] = $document->getDescription();
                 }
@@ -751,9 +749,9 @@ class TestHelper
     public static function getAssetCount()
     {
         $list = new Asset\Listing();
-        $childs = $list->load();
+        $children = $list->getAssets();
 
-        return count($childs);
+        return count($children);
     }
 
     /**
@@ -781,5 +779,22 @@ class TestHelper
         $path = __DIR__ . '/../Resources/' . ltrim($path, '/');
 
         return $path;
+    }
+
+    /**
+     * @param int $length
+     *
+     * @return string
+     */
+    public static function generateRandomString($length = 10)
+    {
+        $characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $charactersLength = strlen($characters);
+        $randomString = '';
+        for ($i = 0; $i < $length; $i++) {
+            $randomString .= $characters[rand(0, $charactersLength - 1)];
+        }
+
+        return $randomString;
     }
 }

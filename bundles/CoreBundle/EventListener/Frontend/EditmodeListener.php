@@ -107,7 +107,7 @@ class EditmodeListener implements EventSubscriberInterface
             return;
         }
 
-        // trigger this once to make sure it is resolved properly (and set for legacy)
+        // trigger this once to make sure it is resolved properly
         // TODO is this needed?
         $this->editmodeResolver->isEditmode($request);
     }
@@ -241,7 +241,6 @@ class EditmodeListener implements EventSubscriberInterface
         }
 
         $headHtml .= "\n\n";
-        $headHtml .= '<script>var jQueryPreviouslyLoaded = (typeof jQuery == "undefined") ? false : true;</script>' . "\n";
 
         // include script libraries
         foreach ($libraries as $script) {
@@ -271,10 +270,6 @@ class EditmodeListener implements EventSubscriberInterface
         $headHtml .= '<script>
             var editableConfigurations = new Array();
             var pimcore_document_id = ' . $document->getId() . ';
-
-            if(jQueryPreviouslyLoaded) {
-                jQuery.noConflict( true );
-            }
         </script>';
 
         $headHtml .= "\n\n<!-- /pimcore editmode -->\n\n\n";
@@ -292,7 +287,6 @@ class EditmodeListener implements EventSubscriberInterface
         return [
             '/bundles/pimcoreadmin/js/pimcore/common.js',
             '/bundles/pimcoreadmin/js/lib/class.js',
-            '/bundles/pimcoreadmin/js/lib/jquery-3.3.1.min.js',
             '/bundles/pimcoreadmin/js/lib/ext/ext-all' . ($disableMinifyJs ? '-debug' : '') . '.js',
             '/bundles/pimcoreadmin/js/lib/ckeditor/ckeditor.js'
         ];

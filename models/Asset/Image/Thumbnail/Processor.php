@@ -18,7 +18,6 @@
 namespace Pimcore\Model\Asset\Image\Thumbnail;
 
 use Pimcore\File;
-use Pimcore\Image\Optimizer;
 use Pimcore\Logger;
 use Pimcore\Model\Asset;
 use Pimcore\Model\Tool\TmpStore;
@@ -113,10 +112,10 @@ class Processor
         if ($format == 'print') {
             $format = self::getAllowedFormat($fileExt, ['svg', 'jpeg', 'png', 'tiff'], 'png');
 
-            if (($format == 'tiff') && \Pimcore\Tool::isFrontentRequestByAdmin()) {
+            if (($format == 'tiff') && \Pimcore\Tool::isFrontendRequestByAdmin()) {
                 // return a webformat in admin -> tiff cannot be displayed in browser
                 $format = 'png';
-                $deferred = false; // deferred is default, but it's not possible when using isFrontentRequestByAdmin()
+                $deferred = false; // deferred is default, but it's not possible when using isFrontendRequestByAdmin()
             } elseif ($format == 'tiff') {
                 $transformations = $config->getItems();
                 if (is_array($transformations) && count($transformations) > 0) {
@@ -132,10 +131,10 @@ class Processor
                 return $asset->getFullPath();
             }
         } elseif ($format == 'tiff') {
-            if (\Pimcore\Tool::isFrontentRequestByAdmin()) {
+            if (\Pimcore\Tool::isFrontendRequestByAdmin()) {
                 // return a webformat in admin -> tiff cannot be displayed in browser
                 $format = 'png';
-                $deferred = false; // deferred is default, but it's not possible when using isFrontentRequestByAdmin()
+                $deferred = false; // deferred is default, but it's not possible when using isFrontendRequestByAdmin()
             }
         }
 
@@ -348,12 +347,16 @@ class Processor
             $format = $image->getContentOptimizedFormat();
         }
 
-        $image->save($fsPath, $format, $config->getQuality());
+        $tmpFsPath = preg_replace('@\.([\w]+)$@', uniqid('.tmp-', true) . '.$1', $fsPath);
+        $image->save($tmpFsPath, $format, $config->getQuality());
+        @rename($tmpFsPath, $fsPath); // atomic rename to avoid race conditions
+
         $generated = true;
 
         if ($contentOptimizedFormat) {
-            $tmpStoreKey = str_replace(PIMCORE_TEMPORARY_DIRECTORY . '/', '', $fsPath);
-            TmpStore::add($tmpStoreKey, '-', 'image-optimize-queue');
+            $filePath = str_replace(PIMCORE_TEMPORARY_DIRECTORY . '/', '', $fsPath);
+            $tmpStoreKey = 'thumb_' . $asset->getId() . '__' . md5($filePath);
+            TmpStore::add($tmpStoreKey, $filePath, 'image-optimize-queue');
         }
 
         clearstatcache();
@@ -386,24 +389,5 @@ class Processor
         }
 
         return $path;
-    }
-
-    public static function processOptimizeQueue()
-    {
-        $ids = TmpStore::getIdsByTag('image-optimize-queue');
-
-        // id = path of image relative to PIMCORE_TEMPORARY_DIRECTORY
-        foreach ($ids as $id) {
-            $file = PIMCORE_TEMPORARY_DIRECTORY . '/' . $id;
-            if (file_exists($file)) {
-                $originalFilesize = filesize($file);
-                \Pimcore::getContainer()->get(Optimizer::class)->optimizeImage($file);
-                Logger::debug('Optimized image: ' . $file . ' saved ' . formatBytes($originalFilesize - filesize($file)));
-            } else {
-                Logger::debug('Skip optimizing of ' . $file . " because it doesn't exist anymore");
-            }
-
-            TmpStore::delete($id);
-        }
     }
 }

@@ -87,6 +87,21 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
     public $labelWidth;
 
     /**
+     * @var bool
+     */
+    public $border = false;
+
+    /**
+     * @var bool
+     */
+    public $provideSplitView;
+
+    /**
+     * @var string
+     */
+    public $tabPosition = 'top';
+
+    /**
      * @var
      */
     public $hideLabelsWhenTabsReached;
@@ -158,9 +173,9 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
         $dataItems = $data->getInternalData(true);
         foreach ($dataItems as $language => $values) {
             foreach ($this->getFieldDefinitions() as $fd) {
-                if ($fd instanceof Data\Relations\AbstractRelations && !DataObject\Localizedfield::isLazyLoadingDisabled() && $fd->getLazyLoading()) {
+                if ($fd instanceof Data\Relations\AbstractRelations && !DataObject\Concrete::isLazyLoadingDisabled() && $fd->getLazyLoading()) {
                     $lazyKey = $fd->getName() . DataObject\LazyLoadedFieldsInterface::LAZY_KEY_SEPARATOR . $language;
-                    if ($data->hasLazyKey($lazyKey)) {
+                    if (!$data->isLazyKeyLoaded($lazyKey)) {
                         $params['language'] = $language;
                         $params['object'] = $object;
                         if (!isset($params['context'])) {
@@ -174,7 +189,7 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
                             $values[$fd->getName()] = $value;
                         }
 
-                        $data->removeLazyKey($lazyKey);
+                        $data->markLazyKeyAsLoaded($lazyKey);
                     }
                 }
 
@@ -274,15 +289,19 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
 
         if (!$localizedFields instanceof DataObject\Localizedfield) {
             $localizedFields = new DataObject\Localizedfield();
+            $context = isset($params['context']) ? $params['context'] : null;
+            $localizedFields->setContext($context);
         }
 
-        $context = isset($params['context']) ? $params['context'] : null;
-        $localizedFields->setContext($context);
+        if ($object) {
+            $localizedFields->setObject($object);
+        }
 
         if (is_array($data)) {
             foreach ($data as $language => $fields) {
                 foreach ($fields as $name => $fdata) {
                     $fd = $this->getFielddefinition($name);
+                    $params['language'] = $language;
                     $localizedFields->setLocalizedValue(
                         $name,
                         $fd->getDataFromEditmode($fdata, $object, $params),
@@ -579,11 +598,7 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
      */
     public function hasChildren()
     {
-        if (is_array($this->childs) && count($this->childs) > 0) {
-            return true;
-        }
-
-        return false;
+        return is_array($this->childs) && count($this->childs) > 0;
     }
 
     /**
@@ -759,6 +774,9 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
                     'containerType' => 'fieldcollection',
                     'containerKey' => $container->getType(),
                 ];
+                $lf->setContext($context);
+            } elseif ($container instanceof DataObject\Concrete) {
+                $context = ['object' => $container];
                 $lf->setContext($context);
             }
             $lf->setObject($object);
@@ -1003,23 +1021,37 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
     }
 
     /**
-     * @param string $name
-     *
-     * @return $this|void
+     * @return bool
      */
-    public function setName($name)
+    public function getBorder(): bool
     {
-        $this->name = $name;
-
-        return $this;
+        return $this->border;
     }
 
     /**
-     * @return string
+     * @param bool $border
      */
-    public function getName()
+    public function setBorder(bool $border): void
     {
-        return $this->name;
+        $this->border = $border;
+    }
+
+    /**
+     * @param string $name
+     *
+     * @return $this|Data
+     *
+     * @throws \Exception
+     */
+    public function setName($name)
+    {
+        if ($name !== 'localizedfields') {
+            throw new \Exception('Localizedfields can only be named `localizedfields`, no other names are allowed');
+        }
+
+        $this->name = $name;
+
+        return $this;
     }
 
     /**
@@ -1040,26 +1072,6 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
     public function getRegion()
     {
         return $this->region;
-    }
-
-    /**
-     * @param string $title
-     *
-     * @return $this|void
-     */
-    public function setTitle($title)
-    {
-        $this->title = $title;
-
-        return $this;
-    }
-
-    /**
-     * @return string
-     */
-    public function getTitle()
-    {
-        return $this->title;
     }
 
     /**
@@ -1365,6 +1377,22 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
         return $this->labelWidth;
     }
 
+    /**
+     * @return bool
+     */
+    public function getProvideSplitView()
+    {
+        return $this->provideSplitView;
+    }
+
+    /**
+     * @param bool $provideSplitView
+     */
+    public function setProvideSplitView($provideSplitView): void
+    {
+        $this->provideSplitView = $provideSplitView;
+    }
+
     /** Encode value for packing it into a single column.
      * @param mixed $value
      * @param Model\DataObject\AbstractObject $object
@@ -1446,5 +1474,21 @@ class Localizedfields extends Data implements CustomResourcePersistingInterface
     public function supportsDirtyDetection()
     {
         return true;
+    }
+
+    /**
+     * @return string
+     */
+    public function getTabPosition(): string
+    {
+        return $this->tabPosition;
+    }
+
+    /**
+     * @param string $tabPosition
+     */
+    public function setTabPosition($tabPosition): void
+    {
+        $this->tabPosition = $tabPosition;
     }
 }

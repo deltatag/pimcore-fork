@@ -22,6 +22,8 @@ use Pimcore\Model\Element;
 
 /**
  * @method \Pimcore\Model\Metadata\Predefined\Dao getDao()
+ * @method void save()
+ * @method void delete()
  */
 class Predefined extends Model\AbstractModel
 {
@@ -88,14 +90,13 @@ class Predefined extends Model\AbstractModel
     /**
      * @param int $id
      *
-     * @return self
+     * @return self|null
      */
     public static function getById($id)
     {
         try {
             $metadata = new self();
-            $metadata->setId($id);
-            $metadata->getDao()->getById();
+            $metadata->getDao()->getById($id);
 
             return $metadata;
         } catch (\Exception $e) {
@@ -164,7 +165,7 @@ class Predefined extends Model\AbstractModel
      */
     public function setName($name)
     {
-        $this->name = $name;
+        $this->name = str_replace('~', '---', $name);
 
         return $this;
     }

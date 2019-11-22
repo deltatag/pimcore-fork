@@ -103,13 +103,12 @@ pimcore.asset.image = Class.create(pimcore.asset.asset, {
 
         if (!this.editPanel) {
             var url = '/admin/asset/image-editor?id=' + this.id;
-            url = pimcore.helpers.addCsrfTokenToUrl(url);
             var frameId = 'asset_image_edit_' + this.id;
             this.editPanel = new Ext.Panel({
                 title: t("edit"),
                 html: '<iframe src="' + url + '" frameborder="0" ' +
                 'style="width: 100%;" id="' + frameId + '"></iframe>',
-                iconCls: "pimcore_icon_edit"
+                iconCls: "pimcore_material_icon_edit pimcore_material_icon"
             });
             this.editPanel.on("resize", function (el, width, height, rWidth, rHeight) {
                 Ext.get(frameId).setStyle({
@@ -258,7 +257,7 @@ pimcore.asset.image = Class.create(pimcore.asset.asset, {
             details.push(this.downloadBox);
 
             var thumbnailsStore = new Ext.data.JsonStore({
-                autoLoad: true,
+                autoLoad: false,
                 autoDestroy: true,
                 proxy: {
                     type: 'ajax',
@@ -394,7 +393,7 @@ pimcore.asset.image = Class.create(pimcore.asset.asset, {
             this.displayPanel = new Ext.Panel({
                 title: t("view"),
                 layout: "border",
-                iconCls: "pimcore_icon_view",
+                iconCls: "pimcore_material_icon_view pimcore_material_icon",
                 items: [{
                     region: "center",
                     html: '<div id="' + this.previewContainerId + '" class="pimcore_asset_image_preview"></div>',

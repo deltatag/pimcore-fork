@@ -28,6 +28,9 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
 {
     use Model\DataObject\ClassDefinition\Data\Extension\Relation;
     use Extension\QueryColumnType;
+    use DataObject\ClassDefinition\Data\Relations\AllowObjectRelationTrait;
+    use DataObject\ClassDefinition\Data\Relations\AllowAssetRelationTrait;
+    use DataObject\ClassDefinition\Data\Relations\AllowDocumentRelationTrait;
 
     /**
      * Static type of this element
@@ -230,11 +233,21 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
         $data = is_array($data) ? $data : [];
         $data = current($data);
 
+        $result = [
+            'dirty' => false,
+            'data' => null
+        ];
+
         if ($data['dest_id'] && $data['type']) {
-            return Element\Service::getElementById($data['type'], $data['dest_id']);
+            $element = Element\Service::getElementById($data['type'], $data['dest_id']);
+            if ($element instanceof Element\ElementInterface) {
+                $result['data'] = $element;
+            } else {
+                $result['dirty'] = true;
+            }
         }
 
-        return null;
+        return $result;
     }
 
     /**
@@ -557,7 +570,7 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
      * @param $object
      * @param array $params
      *
-     * @return null|DataObject\Fieldcollection\Data\AbstractData|DataObject\Concrete|DataObject\Objectbrick\Data\
+     * @return null|Element\ElementInterface
      */
     public function preGetData($object, $params = [])
     {
@@ -565,7 +578,7 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
         if ($object instanceof DataObject\Concrete) {
             $data = $object->getObjectVar($this->getName());
 
-            if ($this->getLazyLoading() && $object->hasLazyKey($this->getName())) {
+            if ($this->getLazyLoading() && !$object->isLazyKeyLoaded($this->getName())) {
                 $data = $this->load($object, ['force' => true]);
 
                 $object->setObjectVar($this->getName(), $data);
@@ -581,7 +594,7 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
             $data = $object->getObjectVar($this->getName());
         }
 
-        if (DataObject\AbstractObject::doHideUnpublished() and ($data instanceof Element\ElementInterface)) {
+        if (DataObject\AbstractObject::doHideUnpublished() && ($data instanceof Element\ElementInterface)) {
             if (!Element\Service::isPublished($data)) {
                 return null;
             }
@@ -731,3 +744,5 @@ class ManyToOneRelation extends AbstractRelations implements QueryResourcePersis
         return $value1 == $value2;
     }
 }
+
+class_alias(ManyToOneRelation::class, 'Pimcore\Model\DataObject\ClassDefinition\Data\Href');

@@ -29,6 +29,7 @@ use Symfony\Component\HttpFoundation\Session\Attribute\AttributeBagInterface;
 use Symfony\Component\HttpKernel\Event\FilterControllerEvent;
 use Symfony\Component\HttpKernel\Event\FilterResponseEvent;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 class UserController extends AdminController implements EventedControllerInterface
 {
@@ -302,6 +303,9 @@ class UserController extends AdminController implements EventedControllerInterfa
             $values = $this->decodeJson($request->get('data'), true);
 
             if (!empty($values['password'])) {
+                if (strlen($values['password']) < 10) {
+                    throw new \Exception('Passwords have to be at least 10 characters long');
+                }
                 $values['password'] = Tool\Authentication::getPasswordHash($user->getName(), $values['password']);
             }
 
@@ -555,7 +559,7 @@ class UserController extends AdminController implements EventedControllerInterfa
 
                     if (empty($values['old_password'])) {
                         // if the user want to reset the password, the old password isn't required
-                        $oldPasswordCheck = Tool\Session::useSession(function (AttributeBagInterface $adminSession) use ($oldPasswordCheck) {
+                        $oldPasswordCheck = Tool\Session::useSession(function (AttributeBagInterface $adminSession) {
                             if ($adminSession->get('password_reset')) {
                                 return true;
                             }
@@ -568,6 +572,10 @@ class UserController extends AdminController implements EventedControllerInterfa
                         if ($checkUser) {
                             $oldPasswordCheck = true;
                         }
+                    }
+
+                    if (strlen($values['new_password']) < 10) {
+                        throw new \Exception('Passwords have to be at least 10 characters long');
                     }
 
                     if ($oldPasswordCheck && $values['new_password'] == $values['retype_password']) {
@@ -791,8 +799,6 @@ class UserController extends AdminController implements EventedControllerInterfa
      */
     public function renew2FaSecretAction(Request $request)
     {
-        $this->checkCsrfToken($request);
-
         $user = $this->getAdminUser();
         $proxyUser = $this->getAdminUser(true);
 
@@ -930,8 +936,10 @@ class UserController extends AdminController implements EventedControllerInterfa
             ], Response::HTTP_FORBIDDEN);
         }
 
-        $token = Tool\Authentication::generateToken($user->getName(), $user->getPassword());
-        $link = $request->getScheme() . '://' . $request->getHttpHost() . '/admin/login/login?username=' . $user->getName() . '&token=' . $token;
+        $token = Tool\Authentication::generateToken($user->getName());
+        $link = $this->generateUrl('pimcore_admin_login_check', [
+            'token' => $token,
+        ], UrlGeneratorInterface::ABSOLUTE_URL);
 
         return $this->adminJson([
             'success' => true,
@@ -1096,5 +1104,66 @@ class UserController extends AdminController implements EventedControllerInterfa
         $data = User::getDefaultKeyBindings();
 
         return $this->adminJson(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * @Route("/user/invitationlink", methods={"POST"})
+     *
+     * @param Request $request
+     *
+     * @return \Pimcore\Bundle\AdminBundle\HttpFoundation\JsonResponse
+     *
+     * @throws \Exception
+     */
+    public function invitationLinkAction(Request $request)
+    {
+        $success = false;
+        $message = '';
+
+        if ($username = $request->get('username')) {
+            $user = User::getByName($username);
+            if ($user instanceof User) {
+                if (!$user->isActive()) {
+                    $message .= 'User inactive  <br />';
+                }
+
+                if (!$user->getEmail()) {
+                    $message .= 'User has no email address <br />';
+                }
+            } else {
+                $message .= 'User unknown <br />';
+            }
+
+            if (empty($message)) {
+                //generate random password if user has no password
+                if (!$user->getPassword()) {
+                    $user->setPassword(md5(uniqid()));
+                    $user->save();
+                }
+
+                $token = Tool\Authentication::generateToken($user->getName());
+                $loginUrl = $this->generateUrl('pimcore_admin_login_check', [
+                    'token' => $token,
+                    'reset' => 'true'
+                ], UrlGeneratorInterface::ABSOLUTE_URL);
+
+                try {
+                    $mail = Tool::getMail([$user->getEmail()], 'Pimcore login invitation for ' . Tool::getHostname());
+                    $mail->setIgnoreDebugMode(true);
+                    $mail->setBodyText("Login to pimcore and change your password using the following link. This temporary login link will expire in  24 hours: \r\n\r\n" . $loginUrl);
+                    $res = $mail->send();
+
+                    $success = true;
+                    $message = sprintf($this->trans('invitation_link_sent'), $user->getEmail());
+                } catch (\Exception $e) {
+                    $message .= 'could not send email';
+                }
+            }
+        }
+
+        return $this->adminJson([
+            'success' => $success,
+            'message' => $message
+        ]);
     }
 }

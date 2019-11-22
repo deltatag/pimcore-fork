@@ -65,6 +65,12 @@ class QuantityValue extends Data implements ResourcePersistenceAwareInterface, Q
     public $decimalPrecision;
 
     /**
+     *
+     * @var bool
+     */
+    public $autoConvert;
+
+    /**
      * Type for the column to query
      *
      * @var int
@@ -112,11 +118,11 @@ class QuantityValue extends Data implements ResourcePersistenceAwareInterface, Q
      */
     public function getUnitWidth()
     {
-        return $this->width;
+        return $this->unitWidth;
     }
 
     /**
-     * @param int $width
+     * @param int $unitWidth
      */
     public function setUnitWidth($unitWidth)
     {
@@ -189,6 +195,22 @@ class QuantityValue extends Data implements ResourcePersistenceAwareInterface, Q
     public function setDecimalPrecision($decimalPrecision)
     {
         $this->decimalPrecision = $decimalPrecision;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isAutoConvert(): bool
+    {
+        return $this->autoConvert;
+    }
+
+    /**
+     * @param bool $autoConvert
+     */
+    public function setAutoConvert($autoConvert)
+    {
+        $this->autoConvert = (bool)$autoConvert;
     }
 
     /**
@@ -578,6 +600,8 @@ class QuantityValue extends Data implements ResourcePersistenceAwareInterface, Q
                 if (!is_array($table)) {
                     $table = [];
                     $list = new Model\DataObject\QuantityValue\Unit\Listing();
+                    $list->setOrderKey('abbreviation');
+                    $list->setOrder('asc');
                     $list = $list->load();
                     /** @var $item Model\DataObject\QuantityValue\Unit */
                     foreach ($list as $item) {

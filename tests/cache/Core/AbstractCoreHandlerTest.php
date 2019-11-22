@@ -49,7 +49,7 @@ abstract class AbstractCoreHandlerTest extends TestCase
     /**
      * @inheritDoc
      */
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->cache = $this->createCachePool();
         $this->cache->setLogger(static::$logger);
@@ -122,7 +122,7 @@ abstract class AbstractCoreHandlerTest extends TestCase
     /**
      * @inheritDoc
      */
-    public static function setUpBeforeClass()
+    public static function setUpBeforeClass(): void
     {
         static::setupLogger((new \ReflectionClass(__CLASS__))->getShortName());
     }
@@ -130,7 +130,7 @@ abstract class AbstractCoreHandlerTest extends TestCase
     /**
      * @inheritDoc
      */
-    public static function tearDownAfterClass()
+    public static function tearDownAfterClass(): void
     {
         static::handleLogOutput();
     }
@@ -662,19 +662,6 @@ abstract class AbstractCoreHandlerTest extends TestCase
     public function testShutdownTagListIsProcessedOnShutdown()
     {
         $this->handleShutdownTagListProcessing(true);
-    }
-
-    public function testForceCacheIsNotWrittenWithActiveWriteLock()
-    {
-        $this->handler->save('itemA', 'test', [], null, null, true);
-
-        $this->assertTrue($this->cacheHasItem('itemA'));
-
-        $this->writeLock->lock();
-
-        $this->handler->save('itemB', 'test', [], null, null, true);
-
-        $this->assertFalse($this->cacheHasItem('itemB'));
     }
 
     public function testForceCacheIsWrittenWhenWriteLockIsDisabled()

@@ -18,12 +18,17 @@
 namespace Pimcore\Model\DataObject\Fieldcollection\Data;
 
 use Pimcore\Model;
+use Pimcore\Model\DataObject\Concrete;
 
 /**
- * @method \Pimcore\Model\DataObject\Fieldcollection\Data\Dao getDao()
+ * @method Dao getDao()
  */
-abstract class AbstractData extends Model\AbstractModel
+abstract class AbstractData extends Model\AbstractModel implements Model\DataObject\LazyLoadedFieldsInterface, Model\Element\ElementDumpStateInterface
 {
+    use Model\Element\ElementDumpStateTrait;
+
+    use Model\DataObject\Traits\LazyLoadedRelationTrait;
+
     /**
      * @var int
      */
@@ -38,6 +43,11 @@ abstract class AbstractData extends Model\AbstractModel
      * @var Model\DataObject\Concrete
      */
     protected $object;
+
+    /**
+     * @var int
+     */
+    protected $objectId;
 
     /**
      * @var string
@@ -103,22 +113,27 @@ abstract class AbstractData extends Model\AbstractModel
     }
 
     /**
-     * @param Model\DataObject\Concrete $object
+     * @param Concrete $object
      *
      * @return $this
      */
     public function setObject($object)
     {
+        $this->objectId = $object ? $object->getId() : null;
         $this->object = $object;
 
         return $this;
     }
 
     /**
-     * @return Model\DataObject\Concrete
+     * @return Concrete
      */
     public function getObject()
     {
+        if ($this->objectId && !$this->object) {
+            $this->setObject(Concrete::getById($this->objectId));
+        }
+
         return $this->object;
     }
 
@@ -143,5 +158,64 @@ abstract class AbstractData extends Model\AbstractModel
     public function set($fieldName, $value, $language = null)
     {
         return $this->{'set'.ucfirst($fieldName)}($value, $language);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    protected function getLazyLoadedFieldNames(): array
+    {
+        $lazyLoadedFieldNames = [];
+        $fields = $this->getDefinition()->getFieldDefinitions(['suppressEnrichment' => true]);
+        foreach ($fields as $field) {
+            if (method_exists($field, 'getLazyLoading') && $field->getLazyLoading()) {
+                $lazyLoadedFieldNames[] = $field->getName();
+            }
+        }
+
+        return $lazyLoadedFieldNames;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function isAllLazyKeysMarkedAsLoaded(): bool
+    {
+        $object = $this->getObject();
+        if ($object instanceof Concrete) {
+            return $this->getObject()->isAllLazyKeysMarkedAsLoaded();
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array
+     */
+    public function __sleep()
+    {
+        $parentVars = parent::__sleep();
+        $blockedVars = ['loadedLazyKeys', 'object', $this->getDumpStateProperty()];
+        $finalVars = [];
+
+        if (!$this->isInDumpState()) {
+            //Remove all lazy loaded fields if item gets serialized for the cache (not for versions)
+            $blockedVars = array_merge($this->getLazyLoadedFieldNames(), $blockedVars);
+        }
+
+        foreach ($parentVars as $key) {
+            if (!in_array($key, $blockedVars)) {
+                $finalVars[] = $key;
+            }
+        }
+
+        return $finalVars;
+    }
+
+    public function __wakeup()
+    {
+        if ($this->object) {
+            $this->objectId = $this->object->getId();
+        }
     }
 }

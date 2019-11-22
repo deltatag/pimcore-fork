@@ -15,18 +15,18 @@
 namespace Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Worker\ElasticSearch;
 
 use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Config\ElasticSearch;
-use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Config\IElasticSearchConfig;
-use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Interpreter\IRelationInterpreter;
-use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\ProductList\IProductList;
+use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Config\ElasticSearchConfigInterface;
+use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Interpreter\RelationInterpreterInterface;
+use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\ProductList\ProductListInterface;
 use Pimcore\Bundle\EcommerceFrameworkBundle\IndexService\Worker;
-use Pimcore\Bundle\EcommerceFrameworkBundle\Model\IIndexable;
+use Pimcore\Bundle\EcommerceFrameworkBundle\Model\IndexableInterface;
 use Pimcore\Db\ConnectionInterface;
 use Pimcore\Logger;
 
 /**
  * @property ElasticSearch $tenantConfig
  */
-abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker implements Worker\IBatchProcessingWorker
+abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker implements Worker\BatchProcessingWorkerInterface
 {
     const STORE_TABLE_NAME = 'ecommerceframework_productindex_store_elastic';
     const MOCKUP_CACHE_PREFIX = 'ecommerce_mockup_elastic';
@@ -66,10 +66,10 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
     protected $bulkIndexData = [];
 
     /**
-     * @param ElasticSearch|IElasticSearchConfig $tenantConfig
+     * @param ElasticSearch|ElasticSearchConfigInterface $tenantConfig
      * @param ConnectionInterface $db
      */
-    public function __construct(IElasticSearchConfig $tenantConfig, ConnectionInterface $db)
+    public function __construct(ElasticSearchConfigInterface $tenantConfig, ConnectionInterface $db)
     {
         parent::__construct($tenantConfig, $db);
 
@@ -190,6 +190,15 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
         $relationAttributesMapping = [];
 
         foreach ($this->tenantConfig->getAttributes() as $attribute) {
+            if (empty($attribute->getType())
+                && (empty($attribute->getInterpreter()) || ($attribute->getInterpreter() && !($attribute->getInterpreter() instanceof RelationInterpreterInterface)))
+                && empty($attribute->getOption('mapping'))
+                && empty($attribute->getOption('mapper'))
+                && empty($attribute->getOption('analyzer'))
+            ) {
+                continue;
+            }
+
             // if option "mapping" is set (array), no other configuration is considered for mapping
             if (!empty($attribute->getOption('mapping'))) {
                 $customAttributesMapping[$attribute->getName()] = $attribute->getOption('mapping');
@@ -200,7 +209,7 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
                 //check, if interpreter is set and if this interpreter is instance of relation interpreter
                 // -> then set type to long
                 if (null !== $attribute->getInterpreter()) {
-                    if ($attribute->getInterpreter() instanceof IRelationInterpreter) {
+                    if ($attribute->getInterpreter() instanceof RelationInterpreterInterface) {
                         $type = 'long';
                         $isRelation = true;
                     }
@@ -284,11 +293,11 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
     /**
      * deletes given element from index
      *
-     * @param IIndexable $object
+     * @param IndexableInterface $object
      *
      * @return void
      */
-    public function deleteFromIndex(IIndexable $object)
+    public function deleteFromIndex(IndexableInterface $object)
     {
         if (!$this->tenantConfig->isActive($object)) {
             Logger::info("Tenant {$this->name} is not active.");
@@ -308,11 +317,11 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
     /**
      * updates given element in index
      *
-     * @param IIndexable $object
+     * @param IndexableInterface $object
      *
      * @return void
      */
-    public function updateIndex(IIndexable $object)
+    public function updateIndex(IndexableInterface $object)
     {
         if (!$this->tenantConfig->isActive($object)) {
             Logger::info("Tenant {$this->name} is not active.");
@@ -345,7 +354,7 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
 
         $variants = $esClient->search([
             'index' => $this->getIndexNameVersion(),
-            'type' => IProductList::PRODUCT_TYPE_VARIANT,
+            'type' => ProductListInterface::PRODUCT_TYPE_VARIANT,
             'body' => [
                 '_source' => false,
                 'query' => [
@@ -366,7 +375,7 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
             if ($hit['_parent'] != $indexSystemData['o_virtualProductId']) {
                 $params = [
                     'index' => $this->getIndexNameVersion(),
-                    'type' => IProductList::PRODUCT_TYPE_VARIANT,
+                    'type' => ProductListInterface::PRODUCT_TYPE_VARIANT,
                     'id' => $indexSystemData['o_id'],
                     'parent' => $hit['_parent']
                 ];
@@ -379,7 +388,14 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
     {
         if (empty($data)) {
             $data = $this->db->fetchOne('SELECT data FROM ' . $this->getStoreTableName() . ' WHERE o_id = ? AND tenant = ?', [$objectId, $this->name]);
-            $data = json_decode($data, true);
+            if ($data) {
+                $data = json_decode($data, true);
+
+                $jsonDecodeError = json_last_error();
+                if ($jsonDecodeError !== JSON_ERROR_NONE) {
+                    throw new \Exception("Could not decode store data for updating index - maybe there is invalid json data. Json decode error code was {$jsonDecodeError}, ObjectId was {$objectId}.");
+                }
+            }
         }
 
         if ($data) {
@@ -412,12 +428,12 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
             $data = $this->doPreIndexDataModification($data);
 
             //check if parent should exist and if so, consider parent relation at indexing
-            $routingId = $indexSystemData['o_type'] == IProductList::PRODUCT_TYPE_VARIANT ? $indexSystemData['o_virtualProductId'] : $indexSystemData['o_id'];
+            $routingId = $indexSystemData['o_type'] == ProductListInterface::PRODUCT_TYPE_VARIANT ? $indexSystemData['o_virtualProductId'] : $indexSystemData['o_id'];
 
             $this->bulkIndexData[] = ['index' => ['_index' => $this->getIndexNameVersion(), '_type' => $this->getTenantConfig()->getElasticSearchClientParams()['indexType'], '_id' => $objectId, '_routing' => $routingId]];
             $bulkIndexData = array_filter(['system' => array_filter($indexSystemData), 'type' => $indexSystemData['o_type'], 'attributes' => array_filter($indexAttributeData), 'relations' => $indexRelationData, 'subtenants' => $data['subtenants']]);
 
-            if ($indexSystemData['o_type'] == IProductList::PRODUCT_TYPE_VARIANT) {
+            if ($indexSystemData['o_type'] == ProductListInterface::PRODUCT_TYPE_VARIANT) {
                 $bulkIndexData[self::RELATION_FIELD] = ['name' => $indexSystemData['o_type'], 'parent' => $indexSystemData['o_virtualProductId']];
             } else {
                 $bulkIndexData[self::RELATION_FIELD] = ['name' => $indexSystemData['o_type']];
@@ -541,16 +557,11 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
      */
     protected function isInReindexMode()
     {
-        $esClient = $this->getElasticSearchClient();
-        try {
-            $result = $esClient->indices()->getAlias(['index' => $this->indexName]);
-        } catch (\Exception $e) {
-            Logger::error($e);
-            throw new \Exception('Index alias with name ' . $this->indexName . ' not found! ' . $e);
+        $currentIndexName = $this->fetchEsActiveIndex();
+        if (empty($currentIndexName)) {
+            throw new \Exception('Index alias with name ' . $this->indexName . ' not found! ');
         }
 
-        reset($result);
-        $currentIndexName = key($result);
         $currentIndexVersion = str_replace($this->indexName . '-', '', $currentIndexName);
 
         if ($currentIndexVersion < $this->getIndexVersion()) {
@@ -651,13 +662,25 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
         return $data;
     }
 
-    protected function doDeleteFromIndex($objectId, IIndexable $object = null)
+    protected function doDeleteFromIndex($objectId, IndexableInterface $object = null)
     {
         $esClient = $this->getElasticSearchClient();
 
-        $storeEntry = \Pimcore\Db::get()->fetchRow('SELECT * FROM ' . $this->getStoreTableName() . ' WHERE  o_id=?', [$objectId]);
+        $storeEntry = \Pimcore\Db::get()->fetchRow('SELECT * FROM ' . $this->getStoreTableName() . ' WHERE  o_id=? AND tenant=? ', [$objectId, $this->getTenantConfig()->getTenantName()]);
         if ($storeEntry) {
-            $res = $esClient->delete(['index' => $this->getIndexNameVersion(), 'type' => '_doc', 'id' => $objectId, 'routing' => $storeEntry['o_virtualProductId']]);
+            try {
+                $esClient->delete([
+                    'index' => $this->getIndexNameVersion(),
+                    'type' => $this->getTenantConfig()->getElasticSearchClientParams()['indexType'],
+                    'id' => $objectId,
+                    'routing' => $storeEntry['o_virtualProductId']
+                ]);
+            } catch (\Exception $e) {
+                //if \Elasticsearch\Common\Exceptions\Missing404Exception <- the object is not in the index so its ok.
+                if ($e instanceof \Elasticsearch\Common\Exceptions\Missing404Exception == false) {
+                    throw $e;
+                }
+            }
             $this->deleteFromStoreTable($objectId);
             $this->deleteFromMockupCache($objectId);
         }
@@ -672,32 +695,13 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
         $result = $esClient->indices()->exists(['index' => $this->getIndexNameVersion()]);
 
         if (!$result) {
-            $result = $esClient->indices()->create(['index' => $this->getIndexNameVersion(), 'body' => ['settings' => $this->tenantConfig->getIndexSettings()]]);
-
-            Logger::info('Index-Actions - creating new Index. Name: ' . $this->getIndexNameVersion());
-            if (!$result['acknowledged']) {
-                throw new \Exception('Index creation failed. IndexName: ' . $this->getIndexNameVersion());
-            }
+            $indexName = $this->getIndexNameVersion();
+            $this->createEsIndex($indexName);
 
             //index didn't exist -> reset index queue to make sure all products get reindexed
             $this->resetIndexingQueue();
 
-            //create alias for new index if alias doesn't exist so far
-            $aliasExists = $esClient->indices()->existsAlias(['name' => $this->indexName]);
-            if (!$aliasExists) {
-                Logger::info("Index-Actions - create alias for index since it doesn't exist at all. Name: " . $this->indexName);
-                $params['body'] = [
-                    'actions' => [
-                        [
-                            'add' => [
-                                'index' => $this->getIndexNameVersion(),
-                                'alias' => $this->indexName,
-                            ]
-                        ]
-                    ]
-                ];
-                $result = $esClient->indices()->updateAliases($params);
-            }
+            $this->createEsAliasIfMissing();
         }
 
         $params = $this->getMappingParams();
@@ -735,5 +739,86 @@ abstract class AbstractElasticSearch extends Worker\AbstractMockupCacheWorker im
         ];
 
         return $params;
+    }
+
+    /**
+     * Retrieve the currently active index name from ES based on the alias.
+     *
+     * @return string|null null if no index is found.
+     */
+    public function fetchEsActiveIndex(): ?string
+    {
+        $esClient = $this->getElasticSearchClient();
+        try {
+            $result = $esClient->indices()->getAlias(['index' => $this->indexName]);
+        } catch (\Exception $e) {
+            Logger::error($e);
+
+            return null;
+        }
+
+        reset($result);
+        $currentIndexName = key($result);
+
+        return $currentIndexName;
+    }
+
+    /**
+     * Create the index alias on demand.
+     *
+     * @throws \Exception if alias could not be created.
+     */
+    protected function createEsAliasIfMissing()
+    {
+        $esClient = $this->getElasticSearchClient();
+        //create alias for new index if alias doesn't exist so far
+        $aliasExists = $esClient->indices()->existsAlias(['name' => $this->indexName]);
+        if (!$aliasExists) {
+            Logger::info("Index-Actions - create alias for index since it doesn't exist at all. Name: " . $this->indexName);
+            $params['body'] = [
+                'actions' => [
+                    [
+                        'add' => [
+                            'index' => $this->getIndexNameVersion(),
+                            'alias' => $this->indexName,
+                        ]
+                    ]
+                ]
+            ];
+            $result = $esClient->indices()->updateAliases($params);
+            if (!$result) {
+                throw new \Exception('Alias '.$this->indexName.' could not be created.');
+            }
+        }
+    }
+
+    /**
+     * Create an ES index with the specified version.
+     *
+     * @param string $indexName the name of the index.
+     *
+     * @throws \Exception is thrown if index cannot be created, for instance if connection fails or index is already existing.
+     */
+    protected function createEsIndex(string $indexName)
+    {
+        $esClient = $this->getElasticSearchClient();
+
+        Logger::info('Index-Actions - creating new Index. Name: ' . $indexName);
+        $result = $esClient->indices()->create([
+            'index' => $indexName,
+            'body' => ['settings' => $this->tenantConfig->getIndexSettings()]
+        ]);
+
+        if (!$result['acknowledged']) {
+            throw new \Exception('Index creation failed. IndexName: ' . $indexName);
+        }
+
+        $params = $this->getMappingParams();
+        $params['index'] = $indexName; //important
+        $result = $esClient->indices()->putMapping($params);
+
+        if (!$result['acknowledged']) {
+            throw new \Exception('Index creation failed. IndexName: ' . $indexName);
+        }
     }
 }

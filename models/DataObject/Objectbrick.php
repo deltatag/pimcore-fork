@@ -19,14 +19,14 @@ namespace Pimcore\Model\DataObject;
 
 use Pimcore\Logger;
 use Pimcore\Model;
+use Pimcore\Model\DataObject\Exception\InheritanceParentNotFoundException;
 
 /**
  * @method \Pimcore\Model\DataObject\Objectbrick\Dao getDao()
  */
-class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface, LazyLoadedFieldsInterface
+class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
 {
     use Model\DataObject\Traits\DirtyIndicatorTrait;
-    use Model\DataObject\Traits\LazyLoadedRelationTrait;
 
     /**
      * @var array
@@ -39,9 +39,14 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
     protected $fieldname;
 
     /**
-     * @var Concrete
+     * @var Model\DataObject\Concrete
      */
     protected $object;
+
+    /**
+     * @var int
+     */
+    protected $objectId;
 
     /**
      * @var array
@@ -184,9 +189,13 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
                     $inheritanceModeBackup = AbstractObject::getGetInheritedValues();
                     AbstractObject::setGetInheritedValues(true);
                     if (AbstractObject::doGetInheritedValues($object)) {
-                        $container = $object->getValueFromParent($this->fieldname);
-                        if (!empty($container)) {
-                            $parentBrick = $container->$getter();
+                        try {
+                            $container = $object->getValueFromParent($this->fieldname);
+                            if (!empty($container)) {
+                                $parentBrick = $container->$getter();
+                            }
+                        } catch (InheritanceParentNotFoundException $e) {
+                            // no data from parent available, continue ...
                         }
                     }
                     AbstractObject::setGetInheritedValues($inheritanceModeBackup);
@@ -208,9 +217,13 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
                     $inheritanceModeBackup = AbstractObject::getGetInheritedValues();
                     AbstractObject::setGetInheritedValues(true);
                     if (AbstractObject::doGetInheritedValues($object)) {
-                        $container = $object->getValueFromParent($this->fieldname);
-                        if (!empty($container)) {
-                            $parentBrick = $container->$getter();
+                        try {
+                            $container = $object->getValueFromParent($this->fieldname);
+                            if (!empty($container)) {
+                                $parentBrick = $container->$getter();
+                            }
+                        } catch (InheritanceParentNotFoundException $e) {
+                            // no data from parent available, continue ...
                         }
                     }
                     AbstractObject::setGetInheritedValues($inheritanceModeBackup);
@@ -227,10 +240,14 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
     }
 
     /**
-     * @return AbstractObject
+     * @return Concrete
      */
     public function getObject()
     {
+        if ($this->objectId && !$this->object) {
+            $this->setObject(Concrete::getById($this->objectId));
+        }
+
         return $this->object;
     }
 
@@ -241,6 +258,7 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
      */
     public function setObject($object)
     {
+        $this->objectId = $object ? $object->getId() : null;
         $this->object = $object;
 
         // update all items with the new $object
@@ -271,8 +289,32 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
         $this->getDao()->delete($object);
     }
 
+    /**
+     * @return array
+     */
+    public function __sleep()
+    {
+        $finalVars = [];
+        $blockedVars = ['object'];
+        $vars = parent::__sleep();
+
+        foreach ($vars as $value) {
+            if (!in_array($value, $blockedVars)) {
+                $finalVars[] = $value;
+            }
+        }
+
+        return $finalVars;
+    }
+
     public function __wakeup()
     {
+
+        // for backwards compatibility
+        if (isset($this->object) && $this->object) {
+            $this->objectId = $this->object->getId();
+        }
+
         // sanity check, remove data requiring non-existing (deleted) brick definitions
 
         if (is_array($this->brickGetters)) {
@@ -315,20 +357,6 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
         return $this->{'set'.ucfirst($fieldName)}($value);
     }
 
-    /**
-     * @internal
-     *
-     * @param $brick
-     * @param $brickField
-     * @param $field
-     *
-     * @return string
-     */
-    public static function generateLazyKey($brick, $brickField, $field)
-    {
-        return $brick . LazyLoadedFieldsInterface::LAZY_KEY_SEPARATOR . $brickField . LazyLoadedFieldsInterface::LAZY_KEY_SEPARATOR . $field;
-    }
-
     /** @internal
      * @param $brick
      * @param $brickField
@@ -338,13 +366,13 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
      */
     public function loadLazyField($brick, $brickField, $field)
     {
-        $lazyKey = self::generateLazyKey($brick, $brickField, $field);
-        if ($this->hasLazyKey($lazyKey)) {
+        $item = $this->get($brick);
+        if ($item && !$item->isLazyKeyLoaded($field)) {
             $brickDef = Model\DataObject\Objectbrick\Definition::getByKey($brick);
             /** @var $fieldDef Model\DataObject\ClassDefinition\Data\CustomResourcePersistingInterface */
             $fieldDef = $brickDef->getFieldDefinition($field);
             $context = [];
-            $context['object'] = $this->object;
+            $context['object'] = $this->getObject();
             $context['containerType'] = 'objectbrick';
             $context['containerKey'] = $brick;
             $context['brickField'] = $brickField;
@@ -356,11 +384,34 @@ class Objectbrick extends Model\AbstractModel implements DirtyIndicatorInterface
             $data = $fieldDef->load($this->$brick, $params);
             AbstractObject::setDisableDirtyDetection($isDirtyDetectionDisabled);
 
-            $getter = 'get' . ucfirst($brick);
-            $brickData = $this->$getter();
+            $item->setObjectVar($field, $data);
+            $item->markLazyKeyAsLoaded($field);
+        }
+    }
 
-            $brickData->setObjectVar($field, $data);
-            $this->removeLazyKey($lazyKey);
+    /**
+     * @internal
+     */
+    public function loadLazyData()
+    {
+        $allowedBrickTypes = $this->getAllowedBrickTypes();
+        if (is_array($allowedBrickTypes)) {
+            foreach ($allowedBrickTypes as $allowedBrickType) {
+                $brickGetter = 'get' . ucfirst($allowedBrickType);
+                $brickData = $this->$brickGetter();
+                if ($brickData) {
+                    $brickDef = Model\DataObject\Objectbrick\Definition::getByKey($allowedBrickType);
+                    $fds = $brickDef->getFieldDefinitions();
+                    /** @var $fd Model\DataObject\ClassDefinition\Data */
+                    foreach ($fds as $fd) {
+                        $fieldGetter = 'get' . ucfirst($fd->getName());
+                        $fieldValue = $brickData->$fieldGetter();
+                        if ($fieldValue instanceof Localizedfield) {
+                            $fieldValue->loadLazyData();
+                        }
+                    }
+                }
+            }
         }
     }
 }

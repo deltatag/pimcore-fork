@@ -42,20 +42,18 @@ class Maintenance
             if ($lastTimeItem) {
                 $lastTime = $lastTimeItem->getData();
             } else {
-                $lastTime = time() - 86400;
+                $lastTime = time();
             }
 
             if (file_exists($log) && date('Y-m-d', $lastTime) != date('Y-m-d')) {
                 // archive log (will be cleaned up by maintenance)
                 $archiveFilename = preg_replace('/\.log$/', '', $log) . '-archive-' . date('Y-m-d', $lastTime) . '.log';
                 rename($log, $archiveFilename);
+                TmpStore::delete($tmpStoreTimeId);
+            }
 
-                if ($lastTimeItem) {
-                    $lastTimeItem->setData(time());
-                    $lastTimeItem->update(86400 * 7);
-                } else {
-                    TmpStore::add($tmpStoreTimeId, time(), null, 86400 * 7);
-                }
+            if (!$lastTimeItem) {
+                TmpStore::add($tmpStoreTimeId, time(), null, 86400 * 7);
             }
         }
 
@@ -156,9 +154,15 @@ class Maintenance
         $sql = ' SELECT %s FROM ' .  ApplicationLoggerDb::TABLE_NAME . ' WHERE `timestamp` < DATE_SUB(FROM_UNIXTIME(' . $timestamp . '), INTERVAL ' . $archive_treshold . ' DAY)';
 
         if ($db->fetchOne(sprintf($sql, 'COUNT(*)')) > 1 || true) {
-            $archiveEngine = 'MyISAM';
+            $archiveEngine = 'InnoDB';
             $engines = $db->fetchCol('SHOW ENGINES;');
-            if (in_arrayi('archive', $engines)) {
+
+            // use a different engine than InnoDB for archiving (if available) to keep InnoDB as lean as possible
+            if (in_arrayi('MyISAM', $engines)) {
+                $archiveEngine = 'MyISAM';
+            }
+
+            if (in_arrayi('ARCHIVE', $engines)) {
                 $archiveEngine = 'ARCHIVE';
             }
 

@@ -21,10 +21,11 @@ use Pimcore\Model\DataObject;
 use Pimcore\Model\DataObject\ClassDefinition\Data\Relations\AbstractRelations;
 use Pimcore\Model\Element;
 
-class ManyToManyObjectRelation extends AbstractRelations implements QueryResourcePersistenceAwareInterface
+class ManyToManyObjectRelation extends AbstractRelations implements QueryResourcePersistenceAwareInterface, OptimizedAdminLoadingInterface
 {
     use Model\DataObject\ClassDefinition\Data\Extension\Relation;
     use Extension\QueryColumnType;
+    use DataObject\ClassDefinition\Data\Relations\AllowObjectRelationTrait;
 
     /**
      * Static type of this element
@@ -75,6 +76,16 @@ class ManyToManyObjectRelation extends AbstractRelations implements QueryResourc
     public $visibleFields;
 
     /**
+     * @var bool
+     */
+    public $optimizedAdminLoading = false;
+
+    /**
+     * @var array
+     */
+    public $visibleFieldDefinitions = [];
+
+    /**
      * @return bool
      */
     public function getObjectsAllowed()
@@ -118,12 +129,17 @@ class ManyToManyObjectRelation extends AbstractRelations implements QueryResourc
      */
     public function loadData($data, $object = null, $params = [])
     {
-        $objects = [];
+        $objects = [
+            'dirty' => false,
+            'data' => []
+        ];
         if (is_array($data) && count($data) > 0) {
             foreach ($data as $object) {
                 $o = DataObject::getById($object['dest_id']);
                 if ($o instanceof DataObject\Concrete) {
-                    $objects[] = $o;
+                    $objects['data'][] = $o;
+                } else {
+                    $objects['dirty'] = true;
                 }
             }
         }
@@ -523,15 +539,14 @@ class ManyToManyObjectRelation extends AbstractRelations implements QueryResourc
      * @param $object
      * @param array $params
      *
-     * @return array|mixed|null
+     * @return array
      */
     public function preGetData($object, $params = [])
     {
         $data = null;
         if ($object instanceof DataObject\Concrete) {
             $data = $object->getObjectVar($this->getName());
-            if ($this->getLazyLoading() && $object->hasLazyKey($this->getName())) {
-                //$data = $this->getDataFromResource($object->getRelationData($this->getName(),true,null));
+            if ($this->getLazyLoading() && !$object->isLazyKeyLoaded($this->getName())) {
                 $data = $this->load($object, ['force' => true]);
 
                 $object->setObjectVar($this->getName(), $data);
@@ -853,7 +868,7 @@ class ManyToManyObjectRelation extends AbstractRelations implements QueryResourc
                     ]
 
                 ],
-                'html' => $this->getVersionPreview($originalData, $data, $object, $params)
+                'html' => $this->getVersionPreview($originalData, $object, $params)
             ];
 
             $newData = [];
@@ -925,4 +940,22 @@ class ManyToManyObjectRelation extends AbstractRelations implements QueryResourc
     {
         return $this->visibleFields;
     }
+
+    /**
+     * @return bool
+     */
+    public function isOptimizedAdminLoading(): bool
+    {
+        return (bool) $this->optimizedAdminLoading;
+    }
+
+    /**
+     * @param bool $optimizedAdminLoading
+     */
+    public function setOptimizedAdminLoading($optimizedAdminLoading)
+    {
+        $this->optimizedAdminLoading = $optimizedAdminLoading;
+    }
 }
+
+class_alias(ManyToManyObjectRelation::class, 'Pimcore\Model\DataObject\ClassDefinition\Data\Objects');

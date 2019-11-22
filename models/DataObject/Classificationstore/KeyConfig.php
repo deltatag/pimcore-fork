@@ -90,7 +90,7 @@ class KeyConfig extends Model\AbstractModel
     /**
      * @param int $id
      *
-     * @return Model\DataObject\Classificationstore\KeyConfig
+     * @return self|null
      */
     public static function getById($id)
     {
@@ -107,9 +107,7 @@ class KeyConfig extends Model\AbstractModel
             }
 
             $config = new self();
-            $config->setId($id);
-
-            $config->getDao()->getById();
+            $config->getDao()->getById($id);
             if (self::$cacheEnabled) {
                 self::$cache[$id] = $config;
             }
@@ -118,6 +116,7 @@ class KeyConfig extends Model\AbstractModel
 
             return $config;
         } catch (\Exception $e) {
+            return null;
         }
     }
 
@@ -144,20 +143,41 @@ class KeyConfig extends Model\AbstractModel
      * @param $name
      * @param int $storeId
      *
-     * @return KeyConfig
+     * @return self|null
      *
      * @internal param null $groupId
      */
     public static function getByName($name, $storeId = 1)
     {
         try {
+            $cacheKey = 'cs_keyconfig_' . $storeId . '_' . md5($name);
+
+            if (self::$cacheEnabled && Cache\Runtime::isRegistered($cacheKey)) {
+                $config = Cache\Runtime::get($cacheKey);
+                if ($config) {
+                    return $config;
+                }
+            }
+
+            $config = Cache::load($cacheKey);
+            if ($config) {
+                return $config;
+            }
+
             $config = new self();
             $config->setName($name);
             $config->setStoreId($storeId ? $storeId : 1);
             $config->getDao()->getByName();
 
+            if (self::$cacheEnabled) {
+                Cache\Runtime::set($cacheKey, $config);
+            }
+
+            Cache::save($config, $cacheKey, [], null, 0, true);
+
             return $config;
         } catch (\Exception $e) {
+            return null;
         }
     }
 
@@ -245,7 +265,7 @@ class KeyConfig extends Model\AbstractModel
             $cacheKey = 'cs_keyconfig_' . $this->getId();
             Cache::remove($cacheKey);
         }
-        parent::delete();
+        $this->getDao()->delete();
         \Pimcore::getEventDispatcher()->dispatch(DataObjectClassificationStoreEvents::KEY_CONFIG_POST_DELETE, new KeyConfigEvent($this));
     }
 
@@ -276,7 +296,7 @@ class KeyConfig extends Model\AbstractModel
             \Pimcore::getEventDispatcher()->dispatch(DataObjectClassificationStoreEvents::KEY_CONFIG_PRE_ADD, new KeyConfigEvent($this));
         }
 
-        $model = parent::save();
+        $model = $this->getDao()->save();
 
         if ($isUpdate) {
             \Pimcore::getEventDispatcher()->dispatch(DataObjectClassificationStoreEvents::KEY_CONFIG_POST_UPDATE, new KeyConfigEvent($this));
